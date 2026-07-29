@@ -217,63 +217,358 @@ implementation choices.
 
 ### 3. Drop store (Layer 1)
 
-Specifies the bulk-data layer:
+This section is normative. The drop store is the bulk-data layer of a
+`.limni` image; everything else is metadata.
 
-- Slab header: magic, slab format version, `SlabId`, slab length, optional
-  EC descriptor, optional crypto hint (AEAD id only — keys live in the
-  manifest).
-- Drop records: `(drop_id, plaintext_len, representation, offset, len)` —
-  `offset`/`len` are within the slab's post-codec byte stream.
-- Solid blocks: see decision §20.1 — per-slab solid windows with explicit
-  boundaries; codec output may concatenate consecutive drops within a slab;
-  the slab index carries each drop's byte range within the decompressed
-  solid window.
-- Reed-Solomon shards (optional, per-slab): shard records with their own
-  BLAKE3 hashes and locator entries. Representation variant; identity
-  unchanged.
+#### 3.1 Slab format
+
+A slab is a contiguous byte object in the drop store. It is the unit
+of locator addressing for Layer 1. Slab structure:
+
+```
++---------------------------------+
+| SlabHeader (fixed, §3.2)        |   ← magic, version, slab_id, length, EC, crypto hint
++---------------------------------+
+| DropRecord[0]   (§3.3)          |
+| ...                             |
++---------------------------------+
+| DropRecord[n-1]                 |
++---------------------------------+
+| SolidWindow[0]  (§3.4)          |   ← concatenated compressed bytes for drops 0..k
+| ...                             |
++---------------------------------+
+| SolidWindow[m-1]                |
++---------------------------------+
+| ECShards (optional, §3.5)       |   ← k+m shards when Reed-Solomon is enabled
++---------------------------------+
+```
+
+Slabs MUST be between 4 MiB and 64 MiB inclusive, unless the manifest's
+parameters section overrides (see §5.4). Slabs MUST NOT span locator
+entries; one slab maps to one primary locator plus optional mirror
+entries.
+
+#### 3.2 SlabHeader
+
+The slab header is a fixed-size prefix at offset 0:
+
+| Field | Type | Notes |
+|---|---|---|
+| magic | 4 bytes | `LIM1` (0x4C 0x49 0x4D 0x31) |
+| format_version | u16 LE | bump-incompatible layout changes |
+| slab_id | SlabId (40 bytes) | §2.2 |
+| total_length | u64 LE | bytes including header |
+| ec_descriptor | u8 | 0 = no EC; 1..N = EC id (matches §16); 255 = extended descriptor (post-v1) |
+| crypto_hint | u8 | 0 = plaintext; N = AEAD id (§10); the actual key lives in the manifest (§5.5) |
+
+`magic` lets readers reject misidentified bytes before parsing the
+rest. `format_version` is per-layer; see §17 versioning.
+`ec_descriptor = 0` means no erasure coding; readers MUST NOT attempt
+reconstruction. `ec_descriptor = 255` means the extended descriptor
+follows (post-v1).
+
+The header is followed by drop records, then solid windows, then
+optional EC shards. Field order is fixed.
+
+#### 3.3 Drop records
+
+Each drop within a slab has a `DropRecord` describing where its bytes
+live. A `DropRecord` is:
+
+| Field | Type | Notes |
+|---|---|---|
+| drop_id | DropId (32 bytes) | §1.1 |
+| plaintext_len | u32 LE | bytes after codec/AEAD inverse; readers size the destination buffer from this |
+| representation | 3 bytes | §2.2 (codec, aead, ec); `aead = 0` and `ec = 0` allowed when the slab is plaintext |
+| solid_window_index | u8 | index of the solid window containing this drop's bytes |
+| offset_in_window | u32 LE | byte offset within the decompressed solid window |
+| len_in_window | u32 LE | byte length within the decompressed solid window |
+
+The triple `(solid_window_index, offset_in_window, len_in_window)` tells
+the reader where to find this drop's plaintext inside the decompressed
+solid window. `solid_window_index` is needed because a slab MAY have
+multiple solid windows (one per class group, see §20.1 decision).
+
+`DropRecord`s are packed contiguously in declaration order. The total
+record count equals the count of drops whose representations point at
+this slab; readers MAY validate this against the manifest's slab index.
+
+#### 3.4 Solid windows
+
+A solid window is the codec output for one or more consecutive drops.
+Per §20.1: per-slab solid windows only (cross-slab class groups deferred
+to `solid-blocks-v2`).
+
+A solid window's boundaries are recorded by:
+- The `DropRecord`s that reference it (their `solid_window_index` field).
+- The next window's first drop record, or end-of-slab.
+
+The codec used is `representation.codec`. When `codec = 0` (store), the
+window's bytes are the literal concatenation of drop plaintexts, in
+order, with no framing; readers MUST consume exactly `len_in_window`
+bytes per drop.
+
+When `codec != 0`, the window is compressed; readers decompress once
+per window and then index by `(offset_in_window, len_in_window)`.
+
+#### 3.5 EC shards (optional)
+
+When `SlabHeader.ec_descriptor != 0` and `!= 255`, the slab's last `m`
+blocks of size `ceil(|payload| / k)` are Reed-Solomon parity shards
+(`k+m` total). See §16 and `02-algorithms.md §7` for the exact shard
+field layout and reconstruction procedure.
+
+The manifest's slab index (§5.4) MUST list the shard records for any
+EC-enabled slab; readers resolve drops through the locator layer and
+reconstruct only when fewer than `k` data shards are available.
 
 ### 4. Filesystem metadata (Layer 2)
 
-Specifies the POSIX-ish metadata layer. Wire format is FlatBuffers; the
-schema lives in `schema/fs.fbs` and is added by [01-flatbuffers-schema].
-This section specifies the *semantics* of every field:
+This section is normative for the semantics of every metadata field.
+The binary encoding is FlatBuffers and is owned by
+[01-flatbuffers-schema]; this section is the source of truth for what
+each field MEANS.
 
-- Inode: number, mode, uid, gid, mtime/ctime/atime, nlink, xattrs, content
-  handle (slice + slice_map for regular files; redirect target for
-  symlinks; inline data for very small files — see §20 placeholder).
-- Directory representation: structure deferred to the schema task (B-tree
-  vs flat array + index). Spec will pin one once [01-flatbuffers-schema]
-  chooses.
-- Slice map: per-inode ordered list of `(byte_range, DropId)` tuples.
-- xattrs: per-inode key-value list; namespace per xattr.
-- Per-class records: Seine class ID per drop, used by the writer pipeline
-  and recorded so deepening is reproducible (determinism, §1).
+#### 4.1 Inode
+
+An inode represents a filesystem object. Every entry in the directory
+tree references an inode. Inode fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| number | u64 LE | inode number, unique within the image |
+| mode | u32 LE | POSIX mode bits (file type + permissions) |
+| uid | u32 LE | owner user ID |
+| gid | u32 LE | owner group ID |
+| mtime_ns | u64 LE | modification time, nanoseconds since Unix epoch |
+| ctime_ns | u64 LE | inode change time |
+| atime_ns | u64 LE | access time (may be absent in some images; see §4.5) |
+| nlink | u32 LE | hard-link count |
+| xattrs | repeated XAttr | per-inode extended attributes (§4.4) |
+| content_handle | ContentHandle | the actual data (§4.3) |
+
+`number` is the inode's wire identifier and is stable across rebuilds
+of the same logical filesystem (when content-derived; see §8 for how
+inode numbers are assigned in delta chains).
+
+`mode` MUST encode a valid POSIX file type (`S_IFREG`, `S_IFDIR`,
+`S_IFLNK`, etc.). Readers MUST reject unknown file types with
+`Unsupported(path)`.
+
+`mtime_ns`, `ctime_ns`, `atime_ns` are nanoseconds since Unix epoch.
+Readers MUST NOT assume second granularity; the value is exact.
+
+#### 4.2 Directory representation
+
+A directory inode's `content_handle` is a directory tree node.
+[01-flatbuffers-schema] chooses between a B-tree layout and a flat
+sorted array plus offset index. The spec leaves this open until the
+schema task commits; whichever layout is chosen, the byte order of
+entries within a directory MUST be lexicographic by name so that range
+reads and diff walks are deterministic.
+
+Directory entries: `(name: string, inode_number: u64 LE, entry_type: u8)`.
+`entry_type` is `0x01 = file`, `0x02 = directory`, `0x03 = symlink`,
+`0x04 = special` (block, char, fifo, socket).
+
+#### 4.3 Content handles and slice maps
+
+A regular file inode's `content_handle` is a slice map:
+
+| Field | Type | Notes |
+|---|---|---|
+| inline_data | `Option<[u8]>` | present only for files at or below the inline-data threshold (§2.1) |
+| slices | repeated `(byte_range, slice_id)` | ordered list of slices |
+
+For files above the threshold, `inline_data` is absent and `slices`
+contains the file's chunks in byte order. A `slice_id` resolves to a
+`(byte_range_in_slice, DropId)` mapping in the manifest's slice map
+table; readers follow the chain to fetch drops.
+
+Symlink inodes: `content_handle` is a `redirect` field containing the
+target path string (no slice map). Symlink targets MUST be relative
+paths; absolute paths are resolved relative to the image's mount root.
+
+Special inodes (block, char, fifo, socket): `content_handle` carries
+the device number or pipe identifier; readers handle as appropriate.
+
+#### 4.4 xattrs
+
+Extended attributes are `(namespace, key, value)` triples:
+
+| Field | Type | Notes |
+|---|---|---|
+| namespace | u8 | `0x00 = user`, `0x01 = trusted`, `0x02 = system`, `0x03 = security` |
+| key | string | UTF-8, no NUL bytes |
+| value | bytes | arbitrary |
+
+Readers MUST enforce the namespace policy of the host OS (e.g.,
+`security.SELinux` requires privilege).
+
+#### 4.5 atime omission
+
+Some images omit `atime` to save space (write-heavy workloads). When
+omitted, readers MUST treat `atime` reads as returning `mtime_ns` and
+MUST NOT report the omission as an error.
+
+#### 4.6 Per-class records (Seine)
+
+For each drop in the image, the metadata layer records the Seine
+classification (§13) so deepening (§8.4) is reproducible:
+
+| Field | Type | Notes |
+|---|---|---|
+| drop_id | DropId | §1.1 |
+| class_id | u8 | Seine class registry §13 |
+
+These records live alongside the slice map and are part of the
+layer-2 metadata blob (so the Merkle root in §5.10 commits to them).
 
 ### 5. Manifest (Layer 3)
 
-Specifies the small signed head of the image. Sections, in order:
+This section is normative. The manifest is the small signed head of
+the image; the `ManifestRoot` is the image's identity (§1.2).
 
-1. Magic + format header (per-layer version numbers).
-2. Feature flags section.
-3. Metadata reference: `H(metadata)` (the layer-2 metadata blob's hash)
-   plus a locator for the metadata blob (inline for small images; URL or
-   CID for detached images). The Merkle root commits to `H(metadata)`
-   directly (item 10) so this section exists to *locate* the blob, not to
-   re-hash it.
-4. Slab index (every slab referenced by this image, with locator entries).
-5. Crypto params (image key wrapped per recipient; AEAD id; nonce
-   derivation parameters).
-6. EC params (optional, per-image defaults; per-slab overrides in slab index).
-7. DMS policy (optional; Shamir escrow only in v0.1, see §21.2).
-8. Delta linkage (`base_root` if this is a delta; tree ops list — §8.1).
-9. History (append-only operation log).
-10. Merkle root:
-    `BLAKE3("limnifs/v1" || H(metadata) || H(section_1) || … || H(section_9))`.
-    Domain separator prevents cross-protocol confusion; flat construction
-    (not deep tree) so each section is individually verifiable. The
-    metadata hash appears directly in the hash list so an attacker cannot
-    swap the metadata blob without invalidating the root.
+#### 5.1 Magic + format header
 
+The first 16 bytes of every `.limni` manifest:
+
+| Field | Type | Notes |
+|---|---|---|
+| magic | 4 bytes | `LMFS` (0x4C 0x4D 0x46 0x53) |
+| drop_store_version | u16 LE | §17 |
+| metadata_version | u16 LE | §17 |
+| manifest_version | u16 LE | §17 |
+| reserved | 4 bytes | MUST be zero |
+
+`magic` lets readers reject misidentified bytes. The three version
+fields are independent (per-layer versioning, §17).
+
+#### 5.2 Feature flags
+
+A list of `(flag_id, required: bool)` tuples. Each flag references the
+feature-flag registry (§14). Required flags unknown to the reader MUST
+cause `UnsupportedFeature(flag)`; optional flags unknown to the reader
+MUST be ignored (§18).
+
+#### 5.3 Metadata reference
+
+`H(metadata) = BLAKE3(layer_2_metadata_blob)` plus a locator for the
+metadata blob. Locator formats are in §12. The Merkle root (§5.10)
+commits to `H(metadata)` directly so an attacker cannot swap the
+metadata blob without invalidating the root.
+
+For small images (metadata blob ≤ 1 MiB by default; the schema task
+[01-flatbuffers-schema] may adjust this), the locator MAY be `inline`
+and the metadata blob embedded in this section.
+
+#### 5.4 Slab index
+
+A list of `(slab_id, locator_entries[])` tuples — one entry per slab
+referenced by this image. `slab_id` is the `SlabId` (§2.2); locator
+entries are per §12.
+
+The slab index MUST contain every slab referenced by every drop in
+the metadata layer. Conversely, slabs in the index MUST be referenced
+by at least one drop (otherwise they are garbage; turnover GC handles
+this — §8.3).
+
+#### 5.5 Crypto params
+
+| Field | Type | Notes |
+|---|---|---|
+| image_key_id | u8 | `0x00` = no encryption; 1..N = AEAD id (§10) |
+| image_key | 32 bytes | present iff `image_key_id != 0` |
+| nonce_params | NonceParams | nonce derivation (per `02-algorithms.md §5`) |
+| ad_params | AdParams | associated-data construction (per `02-algorithms.md §5`) |
+| recipients | repeated `HPKEEnvelope` | per-recipient key wrapping (§15) |
+| signature_bundle | `Option<SignatureBundle>` | optional sigstore signature over the Merkle root |
+
+When `image_key_id = 0`, the image is plaintext (slab crypto hint field
+MUST also be 0; readers reject mismatches).
+
+`recipients` is the per-recipient HPKE envelopes wrapping the
+`image_key`. Adding a recipient appends an envelope (image key
+unchanged, drops untouched). Removing a recipient drops an envelope
+(residual access is a stated threat-model property — re-key = new
+image version).
+
+#### 5.6 EC params (optional)
+
+When present, the image uses Reed-Solomon EC (§16) by default:
+
+| Field | Type | Notes |
+|---|---|---|
+| k | u8 | data shards per slab (typical: 4) |
+| m | u8 | parity shards per slab (typical: 2) |
+| polynomial | u16 LE | GF(2^8) polynomial; default `0x011D` |
+| per_slab_overrides | map<SlabId, (k, m)> | optional |
+
+#### 5.7 DMS policy (optional)
+
+When present, the image carries a Dead Man's Switch / key escrow
+record. v0.1 supports Shamir k-of-n only (§21.2 — time-lock deferred):
+
+| Field | Type | Notes |
+|---|---|---|
+| scheme | u8 | `0x00 = Shamir` |
+| k | u8 | shares required to reconstruct |
+| n | u8 | total shares |
+| shares | repeated `ShareRecord` | `ShareRecord = (custodian_id, share_data)` |
+| reconstruction_hint | `Option<string>` | optional human-readable note |
+
+#### 5.8 Delta linkage
+
+When this image is a delta (§8.1), this section carries:
+
+| Field | Type | Notes |
+|---|---|---|
+| base_root | ManifestRoot | the parent image's `ManifestRoot` |
+| tree_ops | repeated `TreeOp` | `Add | Remove | Replace` (§20.2 — no first-class `Rename` op in v0.1) |
+
+When the image is not a delta, this section is absent. Readers detect
+deltas by section presence.
+
+#### 5.9 History
+
+An append-only log of operations applied to derive this image from its
+inputs:
+
+| Field | Type | Notes |
+|---|---|---|
+| op | u8 | `0x01 = build`, `0x02 = delta`, `0x03 = flatten`, `0x04 = turnover`, `0x05 = deepen` |
+| timestamp | u64 LE | nanoseconds since Unix epoch (or 0 in deterministic mode, §1.4) |
+| inputs | repeated `ManifestRoot` | the inputs to this operation |
+| params | bytes | operation-specific parameters (opaque to readers) |
+
+`history` entries are deterministic except for `timestamp`. The
+conformance harness verifies determinism by running the build pipeline
+twice and asserting equality of everything except `timestamp`.
+
+#### 5.10 Merkle root
+
+```
+ManifestRoot = BLAKE3(
+  "limnifs/v1"
+  || H(metadata)
+  || H(format_header)
+  || H(feature_flags)
+  || H(metadata_reference)
+  || H(slab_index)
+  || H(crypto_params)
+  || H(ec_params)
+  || H(dms_policy)
+  || H(delta_linkage)
+  || H(history)
+)
+```
+
+The domain separator `limnifs/v1` prevents cross-protocol confusion.
+Flat construction (not deep tree) so each section is individually
+verifiable. The metadata hash appears directly so swapping the metadata
+blob invalidates the root. Sections that are absent in this manifest
+(e.g., `delta_linkage` for a non-delta image) are treated as
+zero-length empty strings in their slot.
 ---
 
 ## Part III — Addressing, overlays, derivation
