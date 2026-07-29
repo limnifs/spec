@@ -13,10 +13,14 @@ The first 16 bytes of every `.limni` manifest:
 | drop_store_version | u16 LE | §17 |
 | metadata_version | u16 LE | §17 |
 | manifest_version | u16 LE | §17 |
-| reserved | 4 bytes | MUST be zero |
+| reserved | 6 bytes | MUST be zero |
 
 `magic` lets readers reject misidentified bytes. The three version
-fields are independent (per-layer versioning, §17).
+fields are independent (per-layer versioning, §17). The reserved field
+pads the header to a 16-byte aligned fixed width (power-of-two, common
+header convention); readers MUST reject non-zero reserved bytes as a
+`Corrupt` error so future spec amendments can repurpose the field
+without silent misinterpretation by older readers.
 
 #### 5.2 Feature flags
 
