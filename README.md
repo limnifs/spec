@@ -72,6 +72,8 @@ can run conformance.
   manifest header (§5.1): magic, three u16 LE versions, six reserved bytes.
 - [bit-level/36-feature-flags.md](bit-level/36-feature-flags.md) — the feature
   flags section (§5.2): section version, entry count, per-entry flag id + required.
+- [bit-level/37-locator-entry.md](bit-level/37-locator-entry.md) — the length-prefixed
+  locator URI (§12): u32 LE length + UTF-8 URI bytes.
 
 ### Layer 4 — algorithms
 - [algorithms/40-addressing.md](algorithms/40-addressing.md) — slice → drop →
