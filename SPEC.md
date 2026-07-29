@@ -575,43 +575,225 @@ zero-length empty strings in their slot.
 
 ### 6. Two-level addressing
 
-Specifies the load-bearing addressing rule:
+This section is normative. Two-level addressing is the load-bearing
+resolution rule: it determines how a reader turns a byte-range
+request on a logical file into a concrete byte sequence.
 
-- Slice → drop resolution via the inode's slice map.
-- Drop → slab extent resolution via the slab index:
-  `(slab_id, offset, len, representation)`.
-- Range reads: slice byte range → drop subset → slab extent subset.
-  MUST NOT inflate a full slab outside recorded solid blocks (§20.1).
+#### 6.1 Resolution chain
+
+A read of byte range `[start, end)` of a slice proceeds in three steps:
+
+1. **Slice → drops**: consult the slice map for the slice's containing
+   inode (§4.3). Each entry is `(byte_range, slice_id)`. The range
+   `[start, end)` is intersected with each slice's `byte_range`;
+   matching slices are mapped to their `DropId`s via the manifest's
+   slice map table.
+2. **Drop → slab extent**: consult the slab index (§5.4). For each
+   `DropId`, find the slab record that contains it; the extent is
+   `(slab_id, offset_in_window, len_in_window, representation)` from
+   the `DropRecord` (§3.3) plus the slab record's locator entries.
+3. **Slab → bytes**: via the locator layer (§12), fetch the slab. The
+   reader decompresses the relevant solid window(s) to obtain the drop
+   plaintexts. The `DropSource` post-condition (§1.1) verifies
+   `BLAKE3(decoded_plaintext) == DropId`.
+
+The three steps MUST run in this order. Implementations MUST NOT skip
+step 2 by guessing at slab offsets; the slab index is the only source
+of truth for `DropId → slab extent`.
+
+#### 6.2 Range read invariants
+
+For a slice spanning drops `{d_0, d_1, …, d_n}` with each `d_i` having
+`plaintext_len = L_i`, the slice's byte range `[start, end)` resolves
+to:
+
+- For each `d_i`, compute the intersection
+  `[start, end) ∩ [prefix_sum_i, prefix_sum_{i+1})`.
+- If non-empty, the partial drop `d_i[start_in_drop, end_in_drop]` is
+  read.
+- The reader MUST return bytes in slice order; partial drops MUST be
+  reassembled into the requested range.
+
+The reader MUST NOT inflate a full slab outside recorded solid blocks
+(§20.1). Specifically:
+
+- The reader MUST fetch only the slab extents overlapping the slice
+  range; reading the entire slab is a bug.
+- The reader MUST decompress only the solid windows overlapping the
+  slice range; decompressing unrelated windows is a bug.
+
+The `SlabRef` field order pinned in §2.2 (`SlabId`, `offset`, `len`,
+`Representation`, then locator count + entries) is the only field
+order readers accept. A `SlabRef` with fields in any other order is a
+malformed `SlabRef`; readers reject with `Corrupt { offset, reason }`.
 
 ### 7. Overlay chains
 
-Specifies delta-chain resolution:
+This section is normative. An overlay chain is a sequence of manifests
+where each non-base manifest declares `base_root` (§5.8) pointing to
+its parent.
 
-- A manifest MAY declare a `base_root`; resolution walks the chain.
-- Chain depth is unbounded in format; bounded by reader policy (default
-  to be set by 03-core-reader, recorded as `overlay_max_depth`).
-- Cycle detection: manifests include a `chain_depth` counter; readers
-  MUST reject cycles with `Policy { rule: "overlay-cycle" }`.
-- Meromictic chains are valid long-term state — readers MUST NOT require
-  flattening.
+#### 7.1 Chain construction and resolution
+
+A chain is built by applying delta operations (§8.1) to a base manifest.
+Resolution walks the chain from the latest manifest back to the base,
+merging tree operations in reverse:
+
+1. Start at the leaf manifest (the one being opened).
+2. For each manifest in the chain (leaf → base), apply its `tree_ops`
+   to the resolved tree view.
+3. Stop at the base (the manifest without `delta_linkage`).
+
+Tree operations (`Add | Remove | Replace`, §5.8) are applied in the
+order they appear in each manifest's `tree_ops` list. The resolved tree
+is the union of the base tree and all applied operations, with later
+operations in the chain overriding earlier ones.
+
+The reader MUST apply tree operations deterministically: same chain
+order, same operation order, ⇒ same resolved tree. The conformance
+harness verifies this.
+
+#### 7.2 Depth limits
+
+The format imposes no depth limit on overlay chains. Depth is bounded
+by reader policy; a default of `overlay_max_depth = 64` is recommended
+(the value is set per-reader, not in the spec). When a reader's policy
+is exceeded, it MUST return `Policy { rule: "overlay_max_depth" }`.
+
+`overlay_max_depth` is not part of the wire format; it is a reader
+configuration. Authors MAY choose chains deeper than any reader's
+limit, but those chains are unreadable by that reader. Conformance
+vectors include chain depths 1, 2, 5, and 64.
+
+#### 7.3 Cycle detection
+
+Manifests MUST NOT contain cycles in their `base_root` chain. A cycle
+is when manifest A's chain (via `base_root`) returns to A.
+
+Readers detect cycles by maintaining a set of seen `ManifestRoot`s while
+walking the chain. If a `ManifestRoot` is encountered twice in a single
+walk, the reader MUST reject with `Policy { rule: "overlay-cycle" }`.
+
+#### 7.4 Meromictic state
+
+A meromictic chain (§2.1) is one that is never flattened or turned
+over. Meromictic chains are valid long-term state — readers MUST NOT
+require flattening. Flatten (§8.2) is an optimization for performance,
+not a correctness requirement.
+
+A reader's read path through a meromictic chain has per-read cost
+O(chain_depth) metadata, not O(data movement). This is the performance
+profile that makes meromictic chains practical for long-tail use cases
+(e.g., cumulative security patches).
 
 ### 8. Derivation operations
 
-Specifies the manifest-recorded operations (the derivations from
-`00-overview §5`). Each appends to the manifest's history:
+This section is normative. A derivation operation takes one or more
+manifests and produces a new manifest. Each operation appends to the
+new manifest's history (§5.9).
 
-- 8.1 **Delta**: `base_root` + tree ops list (Add / Remove / Replace at
-  inode granularity) + new drops via the writer pipeline. Rename encoding
-  per §20.2.
-- 8.2 **Flatten** (06): composite manifest from a chain; drops
-  re-referenced, not re-encoded. Post-condition: `resolve(flatten(chain))`
-  is byte-identical to `resolve(chain)`.
-- 8.3 **Turnover** (06+04): standalone manifest with all drops repacked;
-  history records `op: turnover`.
-- 8.4 **Deepen** (04): new representation rows only; identity unchanged;
-  history records `op: deepen`.
+#### 8.1 Delta
 
----
+A delta derives a child manifest from a base manifest:
+
+```
+delta(base, next) =
+  Δtree_ops = diff(base.tree, next.tree)         // 02-algorithms §8
+  Δdrops    = drops added by next (via 04-writer)
+  manifest  = base manifest
+              with delta_linkage { base_root: base.root, tree_ops: Δtree_ops }
+              with slab_index extended with new drops' slab refs
+              with history append { op: delta, inputs: [base.root] }
+              with new Merkle root
+```
+
+The `tree_ops` are `Add | Remove | Replace` (no first-class `Rename` per
+§20.2). The writer pipeline (04) computes the tree diff and produces
+new drops for added/replaced content.
+
+The diff algorithm MUST be deterministic — same `(base, next)` inputs
+produce the same `tree_ops`. The conformance harness verifies this by
+diffing twice and asserting equality.
+
+#### 8.2 Flatten
+
+Flatten derives a composite manifest from a chain, with zero drop-store
+I/O:
+
+```
+flatten(chain [m_0 (base) … m_n]) =
+  tree       = resolve(chain)                    // §7
+  metadata   = tree.metadata
+  slab_index = union of slab refs across chain
+  manifest   = build_manifest(metadata, slab_index)
+                with history append { op: flatten, inputs: chain.roots }
+                with new Merkle root
+```
+
+Post-condition: `resolve(flatten(chain))` is byte-identical to
+`resolve(chain)`. The conformance harness verifies this — a flatten
+that produces a different resolved tree is a spec violation.
+
+Performance: O(total metadata of chain). No data movement. Flatten is
+the cheap operation; use it when defragmentation isn't needed.
+
+#### 8.3 Turnover
+
+Turnover derives a standalone manifest, repacking all drops into new
+slabs:
+
+```
+turnover(chain, sink) =
+  tree = resolve(chain)                          // §7
+  for each slice in tree:
+    for each drop_id in slice.slice_map:
+      bytes    = read_drop(drop_id)              // from chain via 03
+      new_rep  = chosen_rep(chain)               // per policy
+      sink.put_drop(drop_id, new_rep, bytes)
+  manifest = build_manifest(tree.metadata, sink.slabs)
+              with history append { op: turnover, inputs: chain.roots }
+              with new Merkle root
+```
+
+GC is implicit and exact: anything unreachable from the resolved tree
+is never copied. Mark-and-sweep == copy-the-live-set. The conformance
+harness verifies that every drop in the new manifest is reachable and
+every reachable drop is in the new manifest.
+
+Post-conditions:
+
+- Standalone (no external slab references).
+- Byte-identical tree to `resolve(chain)`.
+- Cancel-safe: abandoning before `sink.commit` leaves no reader-visible
+  state.
+
+Performance: O(live data) I/O — the only tier that moves bytes.
+
+#### 8.4 Deepen
+
+Deepen re-encodes drops to better representations (e.g., LZ4 → zstd
+for hypolimnion-class drops). Deepen is a strict representation-plane
+operation:
+
+```
+deepen(image, policy) =
+  for each drop in image where representation should change:
+    bytes     = read_drop(drop_id)               // from image via 03
+    new_rep   = policy.new_representation(drop, current_rep)
+    sink.put_drop(drop_id, new_rep, bytes)       // append, not replace
+  manifest = image manifest
+              with slab_index extended with new representations
+              with history append { op: deepen, inputs: [image.root] }
+              with new Merkle root
+```
+
+Identity invariant: deepen APPENDS new representation rows. It MUST NOT
+mutate or delete existing representation rows. The original `DropId`
+relationships (§1.1) are preserved — the same plaintext still addresses
+identically, with one or more representation rows pointing at it.
+
+Performance: depends on policy. Per-drop cost is `O(plaintext_len)`
+encode time for the new codec.
 
 ## Part IV — Variation points (registries as data)
 
