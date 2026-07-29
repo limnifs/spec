@@ -25,6 +25,9 @@ The spec is **onion-layered**: read at the depth you need.
 - **Layer 2 — wire format**: section-level descriptions of drop store,
   metadata, manifest, locators. Read this to navigate a `.lim` file at
   the section level. See `wire-format/`.
+- **Layer 3 — bit-level**: byte-offset tables and bit-position diagrams
+  for every fixed-width type. Read this to implement a parser. See
+  `bit-level/`.
 - **Layer 4 — algorithms**: read path, build path, deepen, delta,
   flatten, turnover, verify. Read this to implement a reader/writer.
   See `algorithms/`.
@@ -35,8 +38,9 @@ The spec is **onion-layered**: read at the depth you need.
 
 A reader who only reads Layer 0 understands what LimniFS is and how to
 use it. A reader who reads Layers 0–2 can navigate a `.lim` file. A
-reader who reads Layer 4 can implement a full reader/writer. A reader
-who reads Layer 5 can run conformance.
+reader who reads Layer 3 can implement a parser. A reader who reads
+Layer 4 can implement a full reader/writer. A reader who reads Layer 5
+can run conformance.
 
 ## File map
 
@@ -55,6 +59,11 @@ who reads Layer 5 can run conformance.
   (deterministic Merkle B-tree), xattrs, slice maps.
 - [wire-format/23-manifest.md](wire-format/23-manifest.md) — magic + header,
   nine sections, Merkle root construction.
+
+### Layer 3 — bit-level
+- [bit-level/README.md](bit-level/README.md) — how to read Layer 3; file index.
+- [bit-level/35-manifest-header.md](bit-level/35-manifest-header.md) — the 16-byte
+  manifest header (§5.1): magic, three u16 LE versions, six reserved bytes.
 
 ### Layer 4 — algorithms
 - [algorithms/40-addressing.md](algorithms/40-addressing.md) — slice → drop →
