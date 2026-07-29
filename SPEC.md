@@ -1084,30 +1084,128 @@ m=2` (per the architecture overview).
 
 ### 17. Versioning policy
 
-- Per-layer version numbers: `drop_store_version`, `metadata_version`,
-  `manifest_version`.
-- A reader declaring spec vX.Y MUST accept any image whose every layer
-  version is ≤ the reader's declared maximum for that layer.
-- Feature flags negotiate post-version capabilities.
-- Deprecation: tombstone flag + new field/path; IDs and field offsets are
-  NEVER reused.
+This section is normative.
+
+#### 17.1 Per-layer versions
+
+Three independent version numbers in the manifest header (§5.1):
+
+- `drop_store_version`
+- `metadata_version`
+- `manifest_version`
+
+Each starts at `1` for spec v0.1. Bump-incompatible changes (wire
+format breaking) increment the corresponding version. The spec
+reserves version `0` for "version not set" — readers MUST reject
+version `0`.
+
+#### 17.2 Compatibility rules
+
+A reader declaring support for spec vX.Y MUST accept any image whose:
+
+- `drop_store_version ≤ drop_store_max` (per-reader limit)
+- `metadata_version ≤ metadata_max`
+- `manifest_version ≤ manifest_max`
+
+If any version exceeds the reader's limit, the reader returns
+`UnsupportedVersion { layer, version, max }`.
+
+#### 17.3 Feature flags vs versions
+
+Feature flags negotiate POST-version capabilities. A reader
+implementing spec v1.0 might not implement the `solid-blocks-v2`
+flag; it sees the flag as `optional`-unknown and falls back to
+per-slab windows (§20.1).
+
+A version bump means a wire-format breaking change. A new feature
+flag means a new optional capability. The two mechanisms are
+independent — never conflate them.
+
+#### 17.4 Deprecation
+
+IDs and field offsets are NEVER reused. Deprecation = new field +
+tombstone flag. Historical images with deprecated fields MUST remain
+readable.
 
 ### 18. Unknown-flag policy
 
-- Required flag unknown to reader: fail with `UnsupportedFeature(flag)`.
-- Optional flag unknown to reader: ignore; reader behavior stays defined.
-- Each flag's required/optional classification lives in the registry (§14).
+This section is normative.
+
+#### 18.1 Required flag unknown
+
+When a reader encounters a required flag (§14) whose ID it does not
+recognize, it MUST return `UnsupportedFeature(flag_id)` and refuse to
+open the image. The flag's classification (required vs optional) is
+recorded in the registry; readers consult it on every open.
+
+#### 18.2 Optional flag unknown
+
+When a reader encounters an optional flag whose ID it does not
+recognize, it MUST ignore the flag and proceed. The reader's behavior
+is defined by the spec as if the flag were absent — flags describe
+extensions, not invariants. An unrecognized optional flag MAY be
+logged for diagnostics but MUST NOT fail the open.
+
+#### 18.3 Unknown registry row
+
+When a reader encounters an unknown ID in any registry (AEAD, codec,
+locator scheme, classifier, feature flag), the behavior depends on
+the registry:
+
+- **AEAD**: image cannot be opened (data is opaque without the
+  algorithm).
+- **Codec**: image cannot be opened.
+- **Locator scheme**: slab is unreadable (other slabs may be).
+- **Classifier**: ignored (the classifier is write-side metadata only).
+- **Feature flag**: per §18.1 / §18.2.
+
+A reader that lists its supported registry IDs in its build
+configuration (a generated Rust enum or Python dataclass) cannot
+encounter "unknown" rows — it fails to compile. A reader that
+interprets rows dynamically (e.g., a forward-compatible in-memory
+parser) follows the rules above.
 
 ### 19. Conformance
 
-- Conformance vectors in component `02-conformance` exercise every
-  boundary condition stated in this spec.
-- A reader claiming spec v0.1 conformance MUST pass all v0.1 vectors.
-- The Python reference reader (`limnifs/limnifs-py`) is the spec-sufficiency
-  oracle: if the Rust reader and the Python reader agree on all vectors,
-  the spec is unambiguous; if they disagree, the spec has a gap.
+This section is normative.
 
----
+#### 19.1 Conformance vectors
+
+Conformance vectors in `02-conformance` exercise every boundary
+condition stated in this spec. A reader claiming spec v0.1 conformance
+MUST pass all v0.1 vectors.
+
+Vector classes:
+
+- **Identity**: round-trip of `DropId` for various inputs (empty,
+  1 byte, exactly chunk-of-tree boundary, > 4 GiB streaming).
+- **Merkle**: section substitution, omission, base_root transplant
+  (per `02-algorithms.md §3`).
+- **AEAD**: deterministic nonce for known inputs; transplant
+  same-slab, cross-slab, cross-image; `Integrity` propagation.
+- **Codec**: deterministic encode for known inputs; round-trip for
+  every registered codec.
+- **EC**: lose each single shard; lose all `C(k+m, m)` subsets for
+  k=4, m=2; corrupt one shard (hash catches); k-1 shards ⇒ clean
+  error.
+- **Unknown-flag**: required unknown → `UnsupportedFeature`;
+  optional unknown → image still opens.
+- **Delta diff**: deterministic `tree_ops` for known input pairs.
+- **Flatten post-condition**: `resolve(flatten(chain)) == resolve(chain)`.
+- **Turnover post-condition**: standalone, byte-identical tree,
+  cancel-safe.
+- **Deepen identity invariant**: `DropId` set preserved across deepen.
+
+#### 19.2 Reference reader as oracle
+
+The Python reference reader (`limnifs/limnifs-py`) is the
+spec-sufficiency oracle. It is written **from the spec only** — it
+never reads the Rust implementation. If the Rust reader and the
+Python reader agree on all vectors, the spec is unambiguous; if they
+disagree, the spec has a gap.
+
+The Python reader is required to be independently implementable. The
+conformance harness runs both readers and compares outputs.
 
 ## Part VII — Resolved and deferred design questions
 
