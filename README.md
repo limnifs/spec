@@ -64,6 +64,8 @@ can run conformance.
 - [bit-level/README.md](bit-level/README.md) — how to read Layer 3; file index.
 - [bit-level/35-manifest-header.md](bit-level/35-manifest-header.md) — the 16-byte
   manifest header (§5.1): magic, three u16 LE versions, six reserved bytes.
+- [bit-level/36-feature-flags.md](bit-level/36-feature-flags.md) — the feature
+  flags section (§5.2): section version, entry count, per-entry flag id + required.
 
 ### Layer 4 — algorithms
 - [algorithms/40-addressing.md](algorithms/40-addressing.md) — slice → drop →
