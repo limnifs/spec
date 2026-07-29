@@ -80,6 +80,11 @@ multiple solid windows (one per class group, see §20.1 decision).
 record count equals the count of drops whose representations point at
 this slab; readers MAY validate this against the manifest's slab index.
 
+Byte-level layout: see [bit-level/31-drop-record.md](../bit-level/31-drop-record.md).
+Total record width: 32 + 4 + 3 + 1 + 4 + 4 = 48 bytes (the
+`representation` triple is encoded as three contiguous u8 fields:
+codec, aead, ec).
+
 #### 3.4 Solid windows
 
 A solid window is the codec output for one or more consecutive drops.
