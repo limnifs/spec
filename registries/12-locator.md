@@ -27,3 +27,7 @@ hash.
 architecture §I9): when multiple entries exist for one slab, the
 locator layer fetches from all in parallel; first successful bytes
 win; lying locators are demoted via `Integrity` propagation.
+
+Byte-level layout: see [bit-level/37-locator-entry.md](../bit-level/37-locator-entry.md).
+Each locator entry is `[length: u32 LE][uri bytes]` where the URI
+is the `scheme ":" scheme_specific_part` form documented above.

@@ -39,10 +39,10 @@ owning Layer 2 section and to the relevant registry.
 | [31-drop-record.md](31-drop-record.md) | 48-byte drop record (§3.3) | `wire-format/21-drop-store.md` |
 | [35-manifest-header.md](35-manifest-header.md) | 16-byte manifest header (§5.1) | `wire-format/23-manifest.md` |
 | [36-feature-flags.md](36-feature-flags.md) | feature flags section (§5.2) | `wire-format/23-manifest.md` |
+| [37-locator-entry.md](37-locator-entry.md) | length-prefixed locator URI (§12) | `registries/12-locator.md` |
 | 32-representation.md | `Representation` triple (§2.2) | `01-glossary.md` |
 | 33-inode.md | inode record (§4.1) | `wire-format/22-metadata.md` |
 | 34-merkle-btree-node.md | directory B-tree node | `wire-format/22-metadata.md` |
-| 37-locator-entry.md | locator entry (§12) | `registries/12-locator.md` |
 | 38-history-entry.md | history entry (§5.9) | `wire-format/23-manifest.md` |
 | 39-tree-op.md | delta tree op (§5.8) | `wire-format/23-manifest.md` |
 
