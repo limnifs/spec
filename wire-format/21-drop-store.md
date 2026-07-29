@@ -53,6 +53,10 @@ follows (post-v1).
 The header is followed by drop records, then solid windows, then
 optional EC shards. Field order is fixed.
 
+Byte-level layout: see [bit-level/30-slab-header.md](../bit-level/30-slab-header.md).
+Total header width: 4 + 2 + 8 + 32 + 8 + 1 + 1 = 56 bytes (the
+`slab_id` is encoded as ordinal u64 LE followed by 32-byte hash).
+
 #### 3.3 Drop records
 
 Each drop within a slab has a `DropRecord` describing where its bytes

@@ -35,10 +35,9 @@ owning Layer 2 section and to the relevant registry.
 
 | File | Type | Source |
 |---|---|---|
+| [30-slab-header.md](30-slab-header.md) | 56-byte slab header (§3.2) | `wire-format/21-drop-store.md` |
 | [35-manifest-header.md](35-manifest-header.md) | 16-byte manifest header (§5.1) | `wire-format/23-manifest.md` |
 | [36-feature-flags.md](36-feature-flags.md) | feature flags section (§5.2) | `wire-format/23-manifest.md` |
-| 36-manifest-sections.md | manifest section bodies (§5.3–§5.9) | `wire-format/23-manifest.md` |
-| 30-slab-header.md | slab header (§3.2) | `wire-format/21-drop-store.md` |
 | 31-drop-record.md | drop record (§3.3) | `wire-format/21-drop-store.md` |
 | 32-representation.md | `Representation` triple (§2.2) | `01-glossary.md` |
 | 33-inode.md | inode record (§4.1) | `wire-format/22-metadata.md` |
