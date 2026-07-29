@@ -799,57 +799,181 @@ encode time for the new codec.
 
 ### 9. Registry format
 
-Specifies the format of every registry. Each registry is a single data
-file under `registries/`. Rows have: numeric ID (stable, never reused),
-mnemonic, reference (RFC/paper), parameter schema, status
-(standard / experimental / deprecated). Adding a row + regenerating
-bindings MUST be the only step required to introduce a new algorithm —
-this is the OCP enforcement.
+This section is normative. Every algorithm, codec, locator scheme,
+classifier class, and feature flag is recorded as a registry row in a
+data file, never as a `match` arm in core code. This is the OCP backbone.
+
+#### 9.1 Data files
+
+Each registry is a single data file under `registries/<name>.toml`
+(TOML preferred for human-edited files; JSON for machine-generated
+ones). The schema for every registry row:
+
+| Field | Type | Notes |
+|---|---|---|
+| id | per-registry | numeric ID; width (u8 / u16) is the registry's choice |
+| mnemonic | string | short name; kebab-case |
+| reference | string | RFC number, paper title+URL, or spec section |
+| status | enum | `standard` \| `experimental` \| `deprecated` |
+| params | object | algorithm-specific parameters; optional |
+| description | string | human-readable note |
+
+`id` MUST be unique within its registry. `id = 0` is reserved (means
+"none" in registries that allow a no-op value, e.g., AEAD `0x00` for
+plaintext). `id` MUST NOT be reused across the three states
+(experimental → standard → deprecated).
+
+`status` progression is monotonic: `experimental → standard →
+deprecated`. A `deprecated` row MUST NOT be removed (deprecation is
+preserved so historical images remain readable).
+
+#### 9.2 Adding a row
+
+Adding a new algorithm = adding a row to the registry + regenerating
+bindings. NO consumer code changes. The conformance harness verifies
+this property by checking that no source file outside `01-format-spec-v01`
+and `01-flatbuffers-schema` references a registry ID by literal number.
+
+Worked example: a new AEAD "Ascon-128" with id `0x05` requires only
+a new row in `registries/aead.toml` and a regenerated Rust binding in
+`limnifs-format`. The `05-crypto` crate's registry module picks up the
+new algorithm at link time without any code change.
+
+#### 9.3 Generation
+
+The registry tables in this spec (§10–14) are generated from the TOML
+data files. Codegen produces:
+
+- Rust: `limnifs_format::registry::aead::Id(0x01)` style enum variants.
+- Python: `limnifs_py.format.registry.aead.Id(0x01)` enum variants.
+- Markdown: §10–14 of this spec (the human-readable form).
+
+CI diff-gates the generated output against the committed code. Any
+drift fails the build.
 
 ### 10. AEAD registry
 
-Initial contents (from design §9, frozen at v0.1):
+Initial contents (frozen at v0.1):
 
-| ID | Algorithm | Status |
-|---|---|---|
-| 0x01 | XChaCha20-Poly1305 | standard (mandatory baseline) |
-| 0x02 | AES-128-OCB | standard |
-| 0x03 | AES-256-GCM | standard |
-| 0x04 | Ascon-128a | standard (embedded readers) |
+| ID | Algorithm | Status | Reference |
+|---|---|---|---|
+| `0x00` | (none) | standard | plaintext; no AEAD applied |
+| `0x01` | XChaCha20-Poly1305 | standard (mandatory baseline) | RFC 8439 |
+| `0x02` | AES-128-OCB | standard | RFC 7253 |
+| `0x03` | AES-256-GCM | standard | NIST SP 800-38D |
+| `0x04` | Ascon-128a | standard (embedded) | NIST LW winner 2023 |
+
+`0x01` is mandatory: every reader MUST support XChaCha20-Poly1305 to
+claim spec v0.1 conformance. Other rows are mandatory if the reader
+claims support for the named status.
+
+Deterministic nonce construction (per `02-algorithms.md §5`):
+`nonce = HKDF-BLAKE3(image_key, info = slab_id ‖ u64le(drop_index))[0..24]`.
+The nonce derivation is a property of the registry row's parameters
+schema, not a per-reader choice.
+
+Associated-data construction: `ad = manifest_root ‖ slab_id ‖
+u64le(drop_index)`. Same derivation rule.
 
 ### 11. Codec registry
 
 Initial contents:
 
-| ID | Algorithm | Status |
-|---|---|---|
-| 0x00 | store (identity) | standard |
-| 0x01 | lz4 | standard |
-| 0x02 | zstd | standard |
-| 0x03 | lzma | experimental (Phase 1+) |
-| 0x04 | brotli | experimental (Phase 1+) |
+| ID | Codec | Status | Reference |
+|---|---|---|---|
+| `0x00` | store | standard (mandatory) | identity; no transform |
+| `0x01` | lz4 | standard (mandatory) | LZ4 spec |
+| `0x02` | zstd | standard | RFC 8478 |
+| `0x03` | lzma | experimental | LZMA spec |
+| `0x04` | brotli | experimental | RFC 7932 |
+
+`0x00` (store) and `0x01` (lz4) are mandatory for v0.1 conformance. The
+writer pipeline may use any registered codec; readers MUST support all
+mandatory codecs and MAY support experimental ones.
+
+Codec determinism requirement: same input bytes + same codec id + same
+level parameter ⇒ same output bytes. The conformance harness verifies
+this for every registered codec. Codecs that fail this test are
+rejected from the registry.
 
 ### 12. Locator scheme registry
 
-Initial contents: `file:`, `http(s):`, `s3:`, `ipfs:`. `limni-p2p:` is
-experimental. Each scheme's locator-entry encoding is specified in this
-section.
+Initial contents:
+
+| Scheme | Status | Reference | Notes |
+|---|---|---|---|
+| `file:` | standard (mandatory) | file path | local filesystem; no range streaming |
+| `http:` | standard | RFC 7230 | range requests (§10.1 of design) |
+| `https:` | standard | RFC 7230 | range requests; same wire format as `http:` over TLS |
+| `s3:` | standard | AWS S3 API | multipart + conditional PUT for atomic write |
+| `ipfs:` | standard | IPFS | CAR interop; drop names are multihash-compatible |
+| `limni-p2p:` | experimental | design §10.1 | peer-to-peer locator |
+
+Locator-entry wire format:
+
+```
+locator_entry = scheme ":" scheme_specific_part
+```
+
+`scheme_specific_part` is the scheme's documented URI/IRI form. For
+`file:`, this is an absolute path. For `http(s):`, this is a URL with
+optional range. For `s3:`, this is `bucket/key?region=...`. For `ipfs:`,
+this is a CID. For `limni-p2p:`, this is a peer address plus content
+hash.
+
+`file:` is mandatory for v0.1 conformance. Locator racing (per
+architecture §I9): when multiple entries exist for one slab, the
+locator layer fetches from all in parallel; first successful bytes
+win; lying locators are demoted via `Integrity` propagation.
 
 ### 13. Classifier class registry
 
-Seine classes: `already-compressed`, `sparse`, `text/code`, `media`,
-`binary` (fallback). Spec restates the constraint from
-[02-algorithms §4]: classification affects representation choice only;
-any class MUST round-trip.
+Seine classes (per `02-algorithms.md §4`):
+
+| ID | Class | Status | Detection rule |
+|---|---|---|---|
+| `0x00` | binary | standard (fallback) | entropy8(head 4 KiB) < 7.99 AND not sparse |
+| `0x01` | already-compressed | standard | magic ∈ {gzip, xz, zstd, lzma, zip, png, jpg, mp4, ...} OR entropy8 ≥ 7.99 |
+| `0x02` | sparse | standard | nul_ratio ≥ 0.99 over full drop |
+| `0x03` | text/code | standard | printable_ratio ≥ 0.95 AND nul_ratio ≈ 0 |
+| `0x04` | media | standard | magic ∈ {wav, flac, raw image, ...} |
+
+`0x00` (binary) is the fallback — every drop MUST classify to one
+class, and binary is the default when no rule fires.
+
+Classification affects *ratio only*. Any misclassification must still
+round-trip (the conformance vector for class mapping verifies
+round-trip on a fixed input set).
 
 ### 14. Feature-flag registry
 
-Flag IDs include: EC, DMS, each locator scheme, post-v1 codecs,
-overlay-depth policy, `solid-blocks-v2` (deferred, §20.1),
-`rename-ops` (deferred, §20.2), `dms-time-lock` (deferred, §21.2).
-Each flag is classified required or optional (§18).
+Flag IDs (numeric, u16):
 
----
+| Flag | ID | Status | Required? | Reference |
+|---|---|---|---|---|
+| EC | `0x0001` | standard | optional | §16 |
+| DMS | `0x0002` | standard | optional | §15 |
+| `file:` locator | `0x0010` | standard | optional | §12 |
+| `http:` locator | `0x0011` | standard | optional | §12 |
+| `https:` locator | `0x0012` | standard | optional | §12 |
+| `s3:` locator | `0x0013` | standard | optional | §12 |
+| `ipfs:` locator | `0x0014` | standard | optional | §12 |
+| `zstd` codec | `0x0020` | standard | optional | §11 |
+| `lzma` codec | `0x0021` | experimental | optional | §11 |
+| `brotli` codec | `0x0022` | experimental | optional | §11 |
+| `solid-blocks-v2` | `0x0100` | experimental | optional | §20.1 (deferred) |
+| `rename-ops` | `0x0101` | experimental | optional | §20.2 (deferred) |
+| `dms-time-lock` | `0x0102` | experimental | optional | §21.2 (deferred) |
+
+Flag ID ranges:
+
+- `0x0000` reserved (no flag).
+- `0x0001–0x00FF` standard flags.
+- `0x0100–0x01FF` experimental flags.
+- `0x0200–0xFFFF` reserved for future use.
+
+`required` flags unknown to the reader cause `UnsupportedFeature(flag)`
+(§18.1). `optional` flags unknown to the reader are ignored (§18.2).
 
 ## Part V — Cryptography and redundancy (references)
 
