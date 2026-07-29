@@ -29,6 +29,11 @@ feature-flag registry (§14). Required flags unknown to the reader MUST
 cause `UnsupportedFeature(flag)`; optional flags unknown to the reader
 MUST be ignored (§18).
 
+Byte-level layout: see [bit-level/36-feature-flags.md](../bit-level/36-feature-flags.md).
+Section version 1: `[version: u8][entry_count: u32 LE][entry × N]`
+where each entry is `[flag_id: u16 LE][required: u8]` (3 bytes).
+Section begins at offset 16 (immediately after the manifest header).
+
 #### 5.3 Metadata reference
 
 `H(metadata) = BLAKE3(layer_2_metadata_blob)` plus a locator for the
