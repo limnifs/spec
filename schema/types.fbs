@@ -1,0 +1,53 @@
+// LimniFS semantic types — wire-format primitives shared across all schemas.
+//
+// Source of truth: SPEC.md §2.2 (Terminology / semantic types).
+// All widths are exact; implementations MUST NOT widen.
+// Generated bindings (Rust, Python) emit these as newtypes, not aliases.
+
+namespace limnifs.format;
+
+// Generic 32-byte BLAKE3 hash. Used for non-identity hashes
+// (H(metadata), H(section_i) inputs to the Merkle root, shard hashes).
+// Identity hashes use distinct types (DropId, ManifestRoot) per §2.2
+// so the type system distinguishes them at module boundaries.
+struct Hash {
+  bytes: [ubyte:32];
+}
+
+// DropId = BLAKE3(plaintext), 256 bits. Per SPEC.md §1.1.
+// Display form: b3:<base32-lower-no-pad> (multihash-compatible).
+struct DropId {
+  hash: [ubyte:32];
+}
+
+// SlabId = per-image ordinal (8 bytes LE u64) + content hash (32 bytes).
+// Per SPEC.md §2.2. The ordinal ensures distinct slabs that hash to the
+// same value within one image remain distinguishable.
+struct SlabId {
+  ordinal: ulong;
+  hash: [ubyte:32];
+}
+
+// ManifestRoot = BLAKE3 of the Merkle hash list. Per SPEC.md §5.10.
+// Same display form as DropId but a distinct type — never alias the two.
+struct ManifestRoot {
+  hash: [ubyte:32];
+}
+
+// Representation = codec (1 byte) + aead (1 byte) + ec (1 byte).
+// Per SPEC.md §2.2. IDs reference registries §10 (AEAD), §11 (codec),
+// §14 (feature flags for EC variants). `aead = 0` and `ec = 0` are
+// allowed (plaintext / no-EC).
+struct Representation {
+  codec: ubyte;
+  aead: ubyte;
+  ec: ubyte;
+}
+
+// Tier ∈ {epilimnion, metalimnion, hypolimnion}. Per SPEC.md §2.1.
+// Encoded as a single byte per the spec table.
+enum Tier : ubyte {
+  Epilimnion = 0,
+  Metalimnion = 1,
+  Hypolimnion = 2,
+}
