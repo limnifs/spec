@@ -1209,25 +1209,40 @@ conformance harness runs both readers and compares outputs.
 
 ## Part VII — Resolved and deferred design questions
 
+This part is normative. The decisions below are pinned in the spec;
+readers MUST follow them. Where a decision is deferred to another
+component, the spec carries the format invariants and the owning
+component carries the parameters.
+
 ### 20. Resolved in v0.1
+
+The two open design questions owned by `01-spec` (design §16.1 and
+§16.4) are resolved here. Both resolutions choose the *reversible*
+option: the richer form can ship behind a feature flag in a future
+spec version without breaking v0.1 readers.
 
 #### 20.1 Solid-block boundaries (design §16.1)
 
-**Decision:** per-slab solid windows with explicit boundaries in metadata.
+**Decision:** per-slab solid windows with explicit boundaries in
+metadata (see §3.4 for the wire format).
 
 A solid block is a codec output that concatenates consecutive drops
-within a single slab into one compressed stream. The slab index records
-each drop's byte range within the *decompressed* solid window. A slab
-MAY contain multiple solid windows; each window's boundaries are
-recorded.
+within a single slab into one compressed stream. The `DropRecord`
+(§3.3) records each drop's `(solid_window_index, offset_in_window,
+len_in_window)` — the window index identifies which window in the slab
+contains the drop's bytes; the offset and length pin the drop's slice
+within the decompressed window. A slab MAY contain multiple solid
+windows (one per class group); each window's boundaries are recorded
+by the `DropRecord`s that reference it plus the next window's first
+drop record.
 
-**Rationale:** keeps slab addressing clean — every drop's bytes resolve
-to `(slab_id, offset, len)` within one slab. Cross-slab class groups
-(the alternative) would require a new addressing indirection and a
-multi-slab inflation path; they are deferred to a `solid-blocks-v2`
-feature flag. Adding that flag later does not break v0.1 readers
-(they treat it as required-unknown and reject, or optional-unknown and
-fall back to per-slab windows).
+**Rationale:** keeps slab addressing clean — every drop's bytes
+resolve to `(slab_id, offset, len)` within one slab. Cross-slab class
+groups (the alternative) would require a new addressing indirection
+and a multi-slab inflation path; they are deferred to the
+`solid-blocks-v2` feature flag (§14). Adding that flag later does not
+break v0.1 readers (they treat it as required-unknown and reject, or
+optional-unknown and fall back to per-slab windows per §18).
 
 **Cost:** small-files ratio within a single slab. Cross-slab class
 locality is the deeper optimization deferred to v2.
@@ -1235,39 +1250,44 @@ locality is the deeper optimization deferred to v2.
 #### 20.2 Rename semantics in delta manifests (design §16.4)
 
 **Decision:** v0.1 has NO first-class `Rename` op. The delta builder
-MUST compile detected renames to `Remove(from)` + `Add(to)` pairs.
+MUST compile detected renames to `Remove(from)` + `Add(to)` pairs
+(see §5.8 for the wire format).
 
-**Rationale:** the v0.1 delta op set is `Add / Remove / Replace` only.
-Rename detection still happens at delta build time (the writer walks
-add/remove pairs and matches identical content id sets); only the
-encoding choice changes. The decision is reversible: a future
-`rename-ops` feature flag can add `Rename(from, to, content_id)`
+**Rationale:** the v0.1 delta op set is `Add / Remove / Replace` only
+(§5.8). Rename detection still happens at delta build time (the writer
+walks add/remove pairs and matches identical content id sets); only
+the encoding choice changes. The decision is reversible: a future
+`rename-ops` feature flag (§14) can add `Rename(from, to, content_id)`
 without breaking v0.1 readers (the flag is optional-unknown to them;
-they fall back to compiled Remove+Add form).
+they fall back to compiled Remove+Add form per §18).
 
-**Cost:** delta manifests for rename-heavy workloads are slightly larger
-than first-class rename would be (two ops + duplicated content id vs.
-one op). Recoverable in v2 if Phase 1+ benchmarks demand.
+**Cost:** delta manifests for rename-heavy workloads are slightly
+larger than first-class rename would be (two ops + duplicated content
+id vs. one op). Recoverable in v2 if Phase 1+ benchmarks demand.
 
 ### 21. Deferred (owned by other components)
+
+Two open design questions are deferred to other components per
+CAMPAIGN.md. The spec carries the format invariants; the owning
+component carries the parameters.
 
 #### 21.1 FastCDC parameters and minimum drop size (design §16.2)
 
 **Owner:** `04-writer-pipeline`. The manifest's parameter section
 carries chunking parameters (min/avg/max sizes, gear table ID); the
-format itself is parameter-agnostic. 04 chooses specific defaults with
-benchmarks; once chosen, this spec records them as a referenced
-parameter set in §3 (drop records).
+format itself is parameter-agnostic — `DropRecord` (§3.3) records
+`plaintext_len` per drop without assuming a chunking policy. `04`
+chooses specific defaults with benchmarks; once chosen, this spec
+records them as a referenced parameter set in §3.
 
 #### 21.2 Time-lock puzzle calibration (design §16.3)
 
-**Owner:** `05-crypto`. v0.1 ships Shamir k-of-n escrow only. Time-lock
-puzzle code MUST NOT land until this spec defines parameter selection
-and a Wesolowski/Pietrzak proof-of-elapsed-time scheme. The
-`dms-time-lock` feature flag is registered in §14 as optional and
-default-off; flipping it to standard requires a spec amendment.
-
----
+**Owner:** `05-crypto`. v0.1 ships Shamir k-of-n escrow only (§5.7
+for the wire format). Time-lock puzzle code MUST NOT land until this
+spec defines parameter selection and a Wesolowski/Pietrzak
+proof-of-elapsed-time scheme. The `dms-time-lock` feature flag (§14)
+is registered as optional and default-off; flipping it to standard
+requires a spec amendment.
 
 ## Part VIII — Worked examples (stubs)
 
