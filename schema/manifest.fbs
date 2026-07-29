@@ -1,0 +1,157 @@
+// LimniFS manifest schema — the small signed head of a .limni image.
+//
+// Source of truth: SPEC.md §5 (Manifest, Layer 3).
+// Sections appear here in the order they are hashed into the Merkle root
+// (SPEC.md §5.10). Optional sections (EC params, DMS policy, delta
+// linkage, signature bundle) are FlatBuffers tables that may be absent.
+
+include "types.fbs";
+
+namespace limnifs.format;
+
+// Magic + format header. Per SPEC.md §5.1. Fixed 16 bytes:
+// 'L','M','F','S' (0x4C 0x4D 0x46 0x53) + three u16 LE versions +
+// 4 bytes reserved (MUST be zero).
+struct MagicHeader {
+  magic: [ubyte:4];            // 0x4C 0x4D 0x46 0x53
+  drop_store_version: ushort;
+  metadata_version: ushort;
+  manifest_version: ushort;
+  reserved: [ubyte:4];         // MUST be zero
+}
+
+// Feature flag entry. Per SPEC.md §5.2, §14. The flag's ID references
+// the feature-flag registry; `required` governs unknown-flag behavior
+// per §18.
+struct FeatureFlag {
+  id: ushort;
+  required: bool;
+}
+
+// Metadata reference. Per SPEC.md §5.3. The locator picks up the
+// metadata blob; `hash` commits to it (the Merkle root also hashes
+// `hash` directly per §5.10, so swapping the blob invalidates the
+// root). For small images, `inline_blob` carries the metadata inline.
+table MetadataReference {
+  hash: Hash;                  // H(metadata) per SPEC.md §5.3
+  locator_scheme: ubyte;       // scheme id from §12
+  locator_data: string;        // scheme-specific part
+  inline_blob: [ubyte];        // present when locator_scheme = inline
+}
+
+// Crypto params. Per SPEC.md §5.5. When `image_key_id = 0`, the image
+// is plaintext and `image_key` MUST be empty; slab crypto_hint fields
+// MUST also be 0 (readers reject mismatches).
+table CryptoParams {
+  image_key_id: ubyte;         // 0x00 = no encryption; 1..N = AEAD id (§10)
+  image_key: [ubyte];          // present iff image_key_id != 0; 32 bytes
+  recipients: [HPKEEnvelope];  // per-recipient key wrapping (§15.1)
+  signature_bundle: SignatureBundle;  // optional sigstore (§15.3)
+}
+
+// HPKE envelope wrapping image_key for one recipient. Per SPEC.md §15.1.
+// RFC 9180: X25519-DHKEM / HKDF-SHA256 / ChaChaPoly.
+table HPKEEnvelope {
+  kem: ubyte;                  // 0x01 = X25519-DHKEM
+  kdf: ubyte;                  // 0x03 = HKDF-SHA256
+  aead: ubyte;                 // 0x01 = ChaChaPoly
+  recipient_key_id: string;
+  ciphertext: [ubyte];
+}
+
+// Optional sigstore signature bundle. Per SPEC.md §15.3. Signing is
+// optional; integrity is always present via BLAKE3 verification.
+table SignatureBundle {
+  signature: [ubyte];
+  certificate: [ubyte];
+  transparency_log: [ubyte];
+  policy: string;              // e.g., "slsa-provenance-v0.2"
+}
+
+// Reed-Solomon EC params. Per SPEC.md §5.6, §16. Image-level defaults;
+// per-slab overrides live in the slab index (§5.4) via ECOverride.
+table ECParams {
+  k: ubyte;                    // data shards per slab
+  m: ubyte;                    // parity shards per slab
+  polynomial: ushort;          // GF(2^8) polynomial; default 0x011D
+  per_slab_overrides: [ECOverride];
+}
+
+table ECOverride {
+  slab_id: SlabId;
+  k: ubyte;
+  m: ubyte;
+}
+
+// Dead Man's Switch / key escrow policy. Per SPEC.md §5.7.
+// v0.1 supports Shamir k-of-n only (§21.2 — time-lock deferred).
+table DMSPolicy {
+  scheme: ubyte;               // 0x00 = Shamir
+  k: ubyte;                    // shares required to reconstruct
+  n: ubyte;                    // total shares
+  shares: [ShareRecord];
+  reconstruction_hint: string;
+}
+
+table ShareRecord {
+  custodian_id: string;
+  share_data: [ubyte];
+}
+
+// Delta linkage. Per SPEC.md §5.8. Absent for non-delta images;
+// readers detect deltas by section presence.
+table DeltaLinkage {
+  base_root: ManifestRoot;     // ManifestRoot of base image
+  tree_ops: [TreeOp];          // Add/Remove/Replace — no Rename in v0.1 (§20.2)
+}
+
+// Tree operation. Per SPEC.md §5.8, §20.2. v0.1 has Add / Remove /
+// Replace only; renames compile to Remove+Add pairs.
+table TreeOp {
+  kind: ubyte;                 // 0x01 = Add, 0x02 = Remove, 0x03 = Replace
+  path: string;                // path of the affected inode
+  inode_number: ulong;         // for Add/Replace: the new inode's number
+}
+
+// History entry (append-only operation log). Per SPEC.md §5.9.
+table HistoryEntry {
+  op: ubyte;                   // 0x01=build, 0x02=delta, 0x03=flatten, 0x04=turnover, 0x05=deepen
+  timestamp: ulong;            // ns since Unix epoch (0 in deterministic mode, §1.4)
+  inputs: [ManifestRoot];      // ManifestRoots of operation inputs
+  params: [ubyte];             // operation-specific (opaque to readers)
+}
+
+// Slab index entry. Per SPEC.md §5.4. The slab index MUST contain
+// every slab referenced by every drop in the metadata layer; slabs
+// in the index MUST be referenced by at least one drop (turnover GC
+// handles orphans per §8.3). The actual DropRecord table lives in
+// slab.fbs (follow-up PR).
+table SlabIndexEntry {
+  slab_id: SlabId;
+  locators: [LocatorEntry];    // mirror list; locator layer races them (§12)
+}
+
+// Locator entry. Per SPEC.md §12. `scheme` references the locator
+// scheme registry; `data` is the scheme-specific URI/IRI form.
+table LocatorEntry {
+  scheme: ubyte;               // scheme id from §12
+  data: string;                // scheme-specific part (path, URL, CID, ...)
+}
+
+// Manifest root table. Per SPEC.md §5. Field order matches the section
+// order hashed into the Merkle root (§5.10). Optional sections are
+// FlatBuffers tables that may be `null` (absent).
+table Manifest {
+  header: MagicHeader;                    // §5.1
+  feature_flags: [FeatureFlag];           // §5.2
+  metadata_reference: MetadataReference;  // §5.3
+  slab_index: [SlabIndexEntry];           // §5.4
+  crypto_params: CryptoParams;            // §5.5
+  ec_params: ECParams;                    // §5.6 (optional)
+  dms_policy: DMSPolicy;                  // §5.7 (optional)
+  delta_linkage: DeltaLinkage;            // §5.8 (absent for non-deltas)
+  history: [HistoryEntry];                // §5.9
+  merkle_root: ManifestRoot;              // §5.10
+}
+
+root_type Manifest;
