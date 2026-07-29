@@ -40,7 +40,8 @@ Normative restatement of the design's identity rule as a wire-format
 constraint. Specifies:
 
 - `DropId = BLAKE3(plaintext)`, 256-bit, displayed as `b3:<base32>` (multihash-compatible).
-- Image identity is `ManifestRoot`, the Merkle root over manifest sections (§5.8).
+- Image identity is `ManifestRoot`, the Merkle root over the metadata blob
+  and the manifest sections (see §5 Merkle root construction).
 - Representation plane separation: codec, AEAD, EC, locator never affect
   identity. A drop may have multiple representations across tiers and
   locators; all decode to the same plaintext and therefore share `DropId`.
@@ -111,16 +112,24 @@ Specifies the small signed head of the image. Sections, in order:
 
 1. Magic + format header (per-layer version numbers).
 2. Feature flags section.
-3. Slab index (every slab referenced by this image, with locator entries).
-4. Crypto params (image key wrapped per recipient; AEAD id; nonce
+3. Metadata reference: `H(metadata)` (the layer-2 metadata blob's hash)
+   plus a locator for the metadata blob (inline for small images; URL or
+   CID for detached images). The Merkle root commits to `H(metadata)`
+   directly (item 10) so this section exists to *locate* the blob, not to
+   re-hash it.
+4. Slab index (every slab referenced by this image, with locator entries).
+5. Crypto params (image key wrapped per recipient; AEAD id; nonce
    derivation parameters).
-5. EC params (optional, per-image defaults; per-slab overrides in slab index).
-6. DMS policy (optional; Shamir escrow only in v0.1, see §21.2).
-7. Delta linkage (`base_root` if this is a delta; tree ops list — §8.1).
-8. History (append-only operation log).
-9. Merkle root: `BLAKE3("limnifs/v1" || H(section_1) || … || H(section_n))`.
-   Domain separator prevents cross-protocol confusion; flat construction
-   (not deep tree) so each section is individually verifiable.
+6. EC params (optional, per-image defaults; per-slab overrides in slab index).
+7. DMS policy (optional; Shamir escrow only in v0.1, see §21.2).
+8. Delta linkage (`base_root` if this is a delta; tree ops list — §8.1).
+9. History (append-only operation log).
+10. Merkle root:
+    `BLAKE3("limnifs/v1" || H(metadata) || H(section_1) || … || H(section_9))`.
+    Domain separator prevents cross-protocol confusion; flat construction
+    (not deep tree) so each section is individually verifiable. The
+    metadata hash appears directly in the hash list so an attacker cannot
+    swap the metadata blob without invalidating the root.
 
 ---
 
