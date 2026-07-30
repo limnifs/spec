@@ -74,6 +74,10 @@ can run conformance.
   flags section (§5.2): section version, entry count, per-entry flag id + required.
 - [bit-level/37-locator-entry.md](bit-level/37-locator-entry.md) — the length-prefixed
   locator URI (§12): u32 LE length + UTF-8 URI bytes.
+- [bit-level/38-metadata-reference.md](bit-level/38-metadata-reference.md) — the
+  metadata reference section (§5.3): BLAKE3 hash, locator entries, optional inline blob.
+- [bit-level/39-slab-index.md](bit-level/39-slab-index.md) — the slab index section
+  (§5.4): per-slab SlabId + locator lists.
 
 ### Layer 4 — algorithms
 - [algorithms/40-addressing.md](algorithms/40-addressing.md) — slice → drop →

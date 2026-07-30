@@ -45,6 +45,9 @@ For small images (metadata blob ≤ 1 MiB by default; the schema task
 [01-flatbuffers-schema] may adjust this), the locator MAY be `inline`
 and the metadata blob embedded in this section.
 
+Byte-level layout: see [bit-level/38-metadata-reference.md](../bit-level/38-metadata-reference.md).
+Section version 1: `[version: u8][metadata_hash: 32 bytes][locator_count: u32 LE][locator entries × N][inline_metadata_len: u32 LE][inline_metadata bytes]`. Either `locator_count >= 1` or `inline_metadata_len > 0` MUST hold; otherwise the metadata is unreachable.
+
 #### 5.4 Slab index
 
 A list of `(slab_id, locator_entries[])` tuples — one entry per slab
@@ -55,6 +58,10 @@ The slab index MUST contain every slab referenced by every drop in
 the metadata layer. Conversely, slabs in the index MUST be referenced
 by at least one drop (otherwise they are garbage; turnover GC handles
 this — §8.3).
+
+Byte-level layout: see [bit-level/39-slab-index.md](../bit-level/39-slab-index.md).
+Section version 1: `[version: u8][entry_count: u32 LE][entry × N]`
+where each entry is `[slab_id: 40 bytes][locator_count: u32 LE][locator entries × M]` (locator_count MUST be ≥ 1; slab_id MUST be unique within the section).
 
 #### 5.5 Crypto params
 
