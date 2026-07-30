@@ -82,6 +82,8 @@ can run conformance.
   (§5.4): per-slab SlabId + locator lists.
 - [bit-level/40-history.md](bit-level/40-history.md) — the history section (§5.9):
   per-entry op, timestamp, inputs, params.
+- [bit-level/43-ec-params.md](bit-level/43-ec-params.md) — the EC params section
+  (§5.6, optional): default (k, m), GF(2^8) polynomial, per-slab overrides.
 - [bit-level/46-merkle-root.md](bit-level/46-merkle-root.md) — the Merkle root
   construction (§5.10): BLAKE3 over domain separator + 10 section hashes.
 

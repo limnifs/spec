@@ -94,6 +94,12 @@ When present, the image uses Reed-Solomon EC (§16) by default:
 | polynomial | u16 LE | GF(2^8) polynomial; default `0x011D` |
 | per_slab_overrides | map<SlabId, (k, m)> | optional |
 
+Byte-level layout: see [bit-level/43-ec-params.md](../bit-level/43-ec-params.md).
+Section version 1: `[version: u8][k: u8][m: u8][polynomial: u16 LE][override_count: u32 LE][override × N]`
+where each override is `[slab_id: 40 bytes][k: u8][m: u8]` (42 bytes).
+k MUST be ≥ 1; m MUST be ≥ 1; k + m MUST be ≤ 256 (GF(2^8) limit).
+Each override's slab_id MUST be unique and MUST appear in the slab index (§5.4).
+
 #### 5.7 DMS policy (optional)
 
 When present, the image carries a Dead Man's Switch / key escrow
