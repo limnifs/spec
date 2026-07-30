@@ -46,10 +46,10 @@ owning Layer 2 section and to the relevant registry.
 | [40-history.md](40-history.md) | history section (§5.9) | `wire-format/23-manifest.md` |
 | [43-ec-params.md](43-ec-params.md) | EC params section (§5.6) | `wire-format/23-manifest.md` |
 | [44-dms-policy.md](44-dms-policy.md) | DMS policy section (§5.7) | `wire-format/23-manifest.md` |
+| [45-delta-linkage.md](45-delta-linkage.md) | delta linkage section (§5.8) | `wire-format/23-manifest.md` |
 | [46-merkle-root.md](46-merkle-root.md) | Merkle root construction (§5.10) | `wire-format/23-manifest.md` |
 | 33-inode.md | inode record (§4.1) | `wire-format/22-metadata.md` |
 | 34-merkle-btree-node.md | directory B-tree node | `wire-format/22-metadata.md` |
-| 41-tree-op.md | delta tree op (§5.8) | `wire-format/23-manifest.md` |
 | 42-crypto-params.md | crypto params section (§5.5) | `wire-format/23-manifest.md` |
 | 43-ec-params.md | EC params section (§5.6) | `wire-format/23-manifest.md` |
 | 44-dms-policy.md | DMS policy section (§5.7) | `wire-format/23-manifest.md` |

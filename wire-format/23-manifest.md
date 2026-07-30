@@ -130,6 +130,11 @@ When this image is a delta (§8.1), this section carries:
 When the image is not a delta, this section is absent. Readers detect
 deltas by section presence.
 
+Byte-level layout: see [bit-level/45-delta-linkage.md](../bit-level/45-delta-linkage.md).
+Section version 1: `[version: u8][base_root: 32 bytes][tree_op_count: u32 LE][tree_op × N]`
+where each tree op is `[op_type: u8][path_len: u32 LE][path bytes][inode_number: u64 LE (for Add/Replace only)]`.
+op_type MUST be 0x01 (Add), 0x02 (Remove), or 0x03 (Replace). v0.1 compiles renames to Remove+Add per §20.2.
+
 #### 5.9 History
 
 An append-only log of operations applied to derive this image from its
