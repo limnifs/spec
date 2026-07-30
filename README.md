@@ -78,6 +78,8 @@ can run conformance.
   metadata reference section (§5.3): BLAKE3 hash, locator entries, optional inline blob.
 - [bit-level/39-slab-index.md](bit-level/39-slab-index.md) — the slab index section
   (§5.4): per-slab SlabId + locator lists.
+- [bit-level/40-history.md](bit-level/40-history.md) — the history section (§5.9):
+  per-entry op, timestamp, inputs, params.
 
 ### Layer 4 — algorithms
 - [algorithms/40-addressing.md](algorithms/40-addressing.md) — slice → drop →
