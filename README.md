@@ -84,6 +84,8 @@ can run conformance.
   per-entry op, timestamp, inputs, params.
 - [bit-level/43-ec-params.md](bit-level/43-ec-params.md) — the EC params section
   (§5.6, optional): default (k, m), GF(2^8) polynomial, per-slab overrides.
+- [bit-level/44-dms-policy.md](bit-level/44-dms-policy.md) — the DMS policy section
+  (§5.7, optional): Shamir k-of-n scheme, share records, optional reconstruction hint.
 - [bit-level/46-merkle-root.md](bit-level/46-merkle-root.md) — the Merkle root
   construction (§5.10): BLAKE3 over domain separator + 10 section hashes.
 
