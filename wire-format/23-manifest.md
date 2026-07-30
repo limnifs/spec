@@ -163,4 +163,9 @@ verifiable. The metadata hash appears directly so swapping the metadata
 blob invalidates the root. Sections that are absent in this manifest
 (e.g., `delta_linkage` for a non-delta image) are treated as
 zero-length empty strings in their slot.
+
+Byte-level layout: see [bit-level/46-merkle-root.md](../bit-level/46-merkle-root.md).
+Total input to the final BLAKE3: 10-byte separator + 10 × 32-byte
+section hashes = 330 bytes. The 32-byte output is the image's
+`ManifestRoot`.
 ---
