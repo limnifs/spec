@@ -113,6 +113,11 @@ record. v0.1 supports Shamir k-of-n only (§21.2 — time-lock deferred):
 | shares | repeated `ShareRecord` | `ShareRecord = (custodian_id, share_data)` |
 | reconstruction_hint | `Option<string>` | optional human-readable note |
 
+Byte-level layout: see [bit-level/44-dms-policy.md](../bit-level/44-dms-policy.md).
+Section version 1: `[version: u8][scheme: u8][k: u8][n: u8][share_count: u32 LE (must equal n)][share × N][reconstruction_hint_len: u32 LE][reconstruction_hint bytes]`
+where each share is `[custodian_id_len: u32 LE][custodian_id bytes][share_data_len: u32 LE][share_data bytes]`.
+scheme MUST be 0x00 (Shamir); k MUST be ≥ 1; n MUST satisfy 1 ≤ k ≤ n ≤ 255; share_count MUST equal n; custodian_ids MUST be unique within the section.
+
 #### 5.8 Delta linkage
 
 When this image is a delta (§8.1), this section carries:
