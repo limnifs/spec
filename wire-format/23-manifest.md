@@ -135,6 +135,10 @@ inputs:
 conformance harness verifies determinism by running the build pipeline
 twice and asserting equality of everything except `timestamp`.
 
+Byte-level layout: see [bit-level/40-history.md](../bit-level/40-history.md).
+Section version 1: `[version: u8][entry_count: u32 LE][entry × N]`
+where each entry is `[op: u8][timestamp: u64 LE][input_count: u32 LE][inputs × input_count × 32 bytes][params_len: u32 LE][params bytes]`. entry_count MUST be ≥ 1 (every image has a build entry).
+
 #### 5.10 Merkle root
 
 ```
