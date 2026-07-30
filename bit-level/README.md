@@ -37,6 +37,7 @@ owning Layer 2 section and to the relevant registry.
 |---|---|---|
 | [30-slab-header.md](30-slab-header.md) | 56-byte slab header (§3.2) | `wire-format/21-drop-store.md` |
 | [31-drop-record.md](31-drop-record.md) | 48-byte drop record (§3.3) | `wire-format/21-drop-store.md` |
+| [32-representation.md](32-representation.md) | 3-byte `Representation` triple (§2.2) | `01-glossary.md` |
 | [35-manifest-header.md](35-manifest-header.md) | 16-byte manifest header (§5.1) | `wire-format/23-manifest.md` |
 | [36-feature-flags.md](36-feature-flags.md) | feature flags section (§5.2) | `wire-format/23-manifest.md` |
 | [37-locator-entry.md](37-locator-entry.md) | length-prefixed locator URI (§12) | `registries/12-locator.md` |
@@ -44,7 +45,6 @@ owning Layer 2 section and to the relevant registry.
 | [39-slab-index.md](39-slab-index.md) | slab index section (§5.4) | `wire-format/23-manifest.md` |
 | [40-history.md](40-history.md) | history section (§5.9) | `wire-format/23-manifest.md` |
 | [46-merkle-root.md](46-merkle-root.md) | Merkle root construction (§5.10) | `wire-format/23-manifest.md` |
-| 32-representation.md | `Representation` triple (§2.2) | `01-glossary.md` |
 | 33-inode.md | inode record (§4.1) | `wire-format/22-metadata.md` |
 | 34-merkle-btree-node.md | directory B-tree node | `wire-format/22-metadata.md` |
 | 41-tree-op.md | delta tree op (§5.8) | `wire-format/23-manifest.md` |

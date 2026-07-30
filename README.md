@@ -68,6 +68,8 @@ can run conformance.
 - [bit-level/31-drop-record.md](bit-level/31-drop-record.md) — the 48-byte drop
   record (§3.3): drop_id, plaintext_len, representation, solid_window_index,
   offset_in_window, len_in_window.
+- [bit-level/32-representation.md](bit-level/32-representation.md) — the 3-byte
+  `Representation` triple (§2.2): codec, aead, ec.
 - [bit-level/35-manifest-header.md](bit-level/35-manifest-header.md) — the 16-byte
   manifest header (§5.1): magic, three u16 LE versions, six reserved bytes.
 - [bit-level/36-feature-flags.md](bit-level/36-feature-flags.md) — the feature
