@@ -86,6 +86,8 @@ can run conformance.
   (§5.6, optional): default (k, m), GF(2^8) polynomial, per-slab overrides.
 - [bit-level/44-dms-policy.md](bit-level/44-dms-policy.md) — the DMS policy section
   (§5.7, optional): Shamir k-of-n scheme, share records, optional reconstruction hint.
+- [bit-level/45-delta-linkage.md](bit-level/45-delta-linkage.md) — the delta linkage section
+  (§5.8, optional): base root reference + tree operations (Add/Remove/Replace).
 - [bit-level/46-merkle-root.md](bit-level/46-merkle-root.md) — the Merkle root
   construction (§5.10): BLAKE3 over domain separator + 10 section hashes.
 
